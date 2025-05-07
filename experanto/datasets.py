@@ -456,10 +456,22 @@ class ChunkDataset(Dataset):
             times = np.linspace(s, s + chunk_s, chunk_size, endpoint=False)
             times = times + self.modality_config[device_name].offset
             data, _ = self._experiment.interpolate(times, device=device_name)
-            out[device_name] = self.transforms[device_name](data).squeeze(0) # remove dim0 for response/eye_tracker/treadmill
 
-        phase_shifts = self._experiment.devices["responses"]._phase_shifts
-        times_with_phase_shifts = (times - times.min())[:, None] + phase_shifts[None, :]
-        out["timestamps"] = torch.from_numpy(times_with_phase_shifts)
+            data = self.transforms[device_name](data).squeeze(0) # remove dim0 for response/eye_tracker/treadmill
+
+            if device_name != "screen" and hasattr(self.modality_config[device_name], 'valid_condition'):
+                valid_entries = []
+                for i, meta in enumerate(self._experiment.devices[device_name]._meta):
+                    for k, v in self.modality_config[device_name].valid_condition.items():
+                        if meta[k] == v:
+                            valid_entries.append(i)
+                data = data[..., valid_entries]
+                
+            out[device_name] = data
+
+        if self._experiment.devices["responses"].use_phase_shifts:
+            phase_shifts = self._experiment.devices["responses"]._phase_shifts
+            times = (times - times.min())[:, None] + phase_shifts[None, :]
+        out["timestamps"] = torch.from_numpy(times)
         return out
 
