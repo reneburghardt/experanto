@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import re
 import typing
 import warnings
 from abc import abstractmethod
@@ -12,7 +11,7 @@ import numpy as np
 import numpy.lib.format as fmt
 import yaml
 
-from .utils import linear_interpolate_1d_sequence, linear_interpolate_sequences
+from .utils import is_numbered_yml, linear_interpolate_1d_sequence, linear_interpolate_sequences
 
 
 class TimeInterval(typing.NamedTuple):
@@ -97,6 +96,7 @@ class SequenceInterpolator(Interpolator):
         self.time_delta = 1.0 / self.sampling_rate
         self.start_time = meta["start_time"]
         self.end_time = meta["end_time"]
+        self.is_mem_mapped = meta["is_mem_mapped"] if "is_mem_mapped" in meta else False
         # Valid interval can be different to start time and end time.
         self.valid_interval = TimeInterval(self.start_time, self.end_time)
 
@@ -108,16 +108,34 @@ class SequenceInterpolator(Interpolator):
                 self.end_time + np.min(self._phase_shifts),
             )
         self.n_signals = meta["n_signals"]
+        
         # read .npy or .mem (memmap) file
-        if (self.root_folder / "data.npy").exists():
-            self._data = np.load(self.root_folder / "data.npy")
-        else:
+        if self.is_mem_mapped:
             self._data = np.memmap(
                 self.root_folder / "data.mem",
                 dtype=meta["dtype"],
                 mode="r",
                 shape=(meta["n_timestamps"], meta["n_signals"]),
             )
+        elif (self.root_folder / "data.npy").exists():
+            self._data = np.load(self.root_folder / "data.npy")
+        else:
+            meta_files = [
+                f
+                for f in (self.root_folder / "meta").iterdir()
+                if f.is_file() and is_numbered_yml(f.name)
+            ]
+            meta_files.sort(key=lambda f: int(os.path.splitext(f.name)[0]))
+
+            self._meta = []
+            self._data = np.empty((meta["n_timestamps"], meta["n_signals"]))
+            for i, f in enumerate(meta_files):
+                with open(f, "r") as file:
+                    self._meta.append(yaml.load(file, Loader=yaml.SafeLoader))
+
+                data_file_name = f.parent.parent / "data" / (f.stem + ".npy")
+                self._data[:, i] = np.load(data_file_name)
+
         if self.normalize:
             self.normalize_init()
 
@@ -237,6 +255,7 @@ class SequenceInterpolator(Interpolator):
             )
 
 
+
 class ScreenInterpolator(Interpolator):
     def __init__(
         self,
@@ -292,10 +311,6 @@ class ScreenInterpolator(Interpolator):
         return (data - self.mean) / self.std
 
     def _parse_trials(self) -> None:
-        # Function to check if a file is a numbered yml file
-        def is_numbered_yml(file_name):
-            return re.fullmatch(r"\d{5}\.yml", file_name) is not None
-
         # Get block subfolders and sort by number
         meta_files = [
             f
@@ -356,7 +371,7 @@ class ScreenInterpolator(Interpolator):
         )
 
 
-class ScreenTrial:
+class ScreenTrial():
     def __init__(
         self,
         file_name: str,

@@ -1,5 +1,12 @@
 import numpy as np
 import torch
+import re
+
+
+# Function to check if a file is a numbered yml file
+def is_numbered_yml(file_name):
+    return re.fullmatch(r"\d{5}\.yml", file_name) is not None
+
 
 def linear_interpolate_1d_sequence(row, times_old, times_new, keep_nans=False):
     """
