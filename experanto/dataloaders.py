@@ -12,6 +12,8 @@ def get_multisession_dataloader(paths, config: DictConfig) -> DataLoader:
     for i, path in enumerate(paths):
         dataset_name = Path(path).name
         dataset = ChunkDataset(path, **config.dataset,)
+        if len(dataset) == 0:
+            config.dataloader.shuffle = False # random sampler fails for empty datasets
         dataloaders[dataset_name] = MultiEpochsDataLoader(dataset,
                                                **config.dataloader,
                                                )

@@ -431,7 +431,7 @@ class ChunkDataset(Dataset):
                 maybe_all_true.append(np.all(v[i: i + self.chunk_sizes["screen"]]))
             if np.all(maybe_all_true):
                 valid_times.append(self._screen_sample_times[i])
-        return np.stack(valid_times)
+        return np.stack(valid_times) if len(valid_times) else np.array([])
 
     def shuffle_valid_screen_times(self) -> None:
         """
@@ -459,7 +459,7 @@ class ChunkDataset(Dataset):
 
             data = self.transforms[device_name](data).squeeze(0) # remove dim0 for response/eye_tracker/treadmill
 
-            if device_name != "screen" and hasattr(self.modality_config[device_name], 'valid_condition'):
+            if device_name != "screen" and hasattr(self.modality_config[device_name], 'valid_condition') and len(self.modality_config[device_name].valid_condition) > 0:
                 valid_entries = []
                 for i, meta in enumerate(self._experiment.devices[device_name]._meta):
                     for k, v in self.modality_config[device_name].valid_condition.items():
