@@ -15,6 +15,7 @@ from copy import deepcopy
 from functools import partial
 from itertools import cycle
 from typing import Any, Dict, Iterator, List, Optional, Tuple, Union
+import re
 
 # third-party libraries
 import numpy as np
@@ -24,6 +25,11 @@ from torch.utils.data import ConcatDataset, DataLoader, Dataset, Sampler
 
 # local libraries
 from .intervals import TimeInterval
+
+
+# Function to check if a file is a numbered yml file
+def is_numbered_yml(file_name):
+    return re.fullmatch(r"\d{5}\.yml", file_name) is not None
 
 
 def replace_nan_with_batch_mean(data: np.array) -> np.array:

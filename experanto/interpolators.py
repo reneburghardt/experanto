@@ -14,6 +14,7 @@ import numpy.lib.format as fmt
 import yaml
 
 from .intervals import TimeInterval
+from .utils import is_numbered_yml
 
 
 class Interpolator:
@@ -117,8 +118,24 @@ class SequenceInterpolator(Interpolator):
                 self._data = np.array(self._data).astype(
                     np.float32
                 )  # Convert memmap to ndarray
-        else:
+        elif (self.root_folder / "data.npy").exists():
             self._data = np.load(self.root_folder / "data.npy")
+        else:
+            meta_files = [
+                f
+                for f in (self.root_folder / "meta").iterdir()
+                if f.is_file() and is_numbered_yml(f.name)
+            ]
+            meta_files.sort(key=lambda f: int(os.path.splitext(f.name)[0]))
+
+            self._meta = []
+            self._data = np.empty((meta["n_timestamps"], meta["n_signals"]))
+            for i, f in enumerate(meta_files):
+                with open(f, "r") as file:
+                    self._meta.append(yaml.load(file, Loader=yaml.SafeLoader))
+
+                data_file_name = f.parent.parent / "data" / (f.stem + ".npy")
+                self._data[:, i] = np.load(data_file_name)
 
         if self.normalize:
             self.normalize_init()
@@ -238,7 +255,11 @@ class PhaseShiftedSequenceInterpolator(SequenceInterpolator):
             **kwargs,
         )
 
-        self._phase_shifts = np.load(self.root_folder / "meta/phase_shifts.npy")
+        if (self.root_folder / "meta/phase_shifts.npy").exists():
+            self._phase_shifts = np.load(self.root_folder / "meta/phase_shifts.npy")
+        else:
+            self._phase_shifts = np.array([meta['phase_shift'] for meta in self._meta])
+
         self.valid_interval = TimeInterval(
             self.start_time
             + (np.max(self._phase_shifts) if len(self._phase_shifts) > 0 else 0),
@@ -372,10 +393,6 @@ class ScreenInterpolator(Interpolator):
         return (data - self.mean) / self.std
 
     def _combine_metadatas(self) -> None:
-        # Function to check if a file is a numbered yml file
-        def is_numbered_yml(file_name):
-            return re.fullmatch(r"\d{5}\.yml", file_name) is not None
-
         # Initialize an empty dictionary to store all contents
         all_data = {}
 
@@ -478,7 +495,7 @@ class ScreenInterpolator(Interpolator):
         )
 
 
-class ScreenTrial:
+class ScreenTrial():
     def __init__(
         self,
         data_file_name: str,
