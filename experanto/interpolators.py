@@ -118,6 +118,13 @@ class SequenceInterpolator(Interpolator):
                 self._data = np.array(self._data).astype(
                     np.float32
                 )  # Convert memmap to ndarray
+
+            # hacky temporary solution
+            self._meta = []
+            coords = np.load(self.root_folder / "meta/cell_motor_coordinates.npy")
+            for i in range(coords.shape[0]):
+                self._meta.append({"cell_motor_coordinates": coords[i]})
+                
         elif (self.root_folder / "data.npy").exists():
             self._data = np.load(self.root_folder / "data.npy")
         else:
