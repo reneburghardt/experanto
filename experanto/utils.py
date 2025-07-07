@@ -7,6 +7,7 @@ import multiprocessing
 import os
 import queue
 import random
+import re
 import threading
 import time
 import warnings
@@ -24,6 +25,12 @@ from torch.utils.data import ConcatDataset, DataLoader, Dataset, Sampler
 
 # local libraries
 from .intervals import TimeInterval
+
+
+# Function to check if a file is a numbered yml file
+def is_numbered_file(file_name, ext):
+    # todo
+    return re.fullmatch(rf"\d{{5}}{re.escape(ext)}$", file_name) is not None
 
 
 def replace_nan_with_batch_mean(data: np.array) -> np.array:

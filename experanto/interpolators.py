@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import typing
 import warnings
 from abc import abstractmethod
@@ -14,6 +13,7 @@ import numpy.lib.format as fmt
 import yaml
 
 from .intervals import TimeInterval
+from .utils import is_numbered_file
 
 
 class Interpolator:
@@ -58,6 +58,10 @@ class Interpolator:
                 return SequenceInterpolator(root_folder, cache_data, **kwargs)
         elif modality == "screen":
             return ScreenInterpolator(root_folder, cache_data, **kwargs)
+        elif modality == "odor":
+            return OdorInterpolator(root_folder, cache_data, **kwargs)
+        elif modality == "spikes":
+            return SpikesInterpolator(root_folder, cache_data, **kwargs)
         else:
             raise ValueError(
                 f"There is no interpolator for {modality}. Please use 'sequence' or 'screen' as modality."
@@ -314,6 +318,122 @@ class PhaseShiftedSequenceInterpolator(SequenceInterpolator):
             )
 
 
+class SpikesInterpolator(Interpolator):
+    def __init__(self, root_folder: str, cache_data: bool = False, interpolation_window: float = 300, interpolation_align: str = 'center', **kwargs) -> None:
+        super().__init__(root_folder)
+        meta = self.load_meta()
+        self.start_time = meta.get("start_time", 0)
+        self.end_time = meta.get("end_time", np.inf)
+        self.valid_interval = TimeInterval(self.start_time, self.end_time)
+        self.cache_trials = cache_data
+        self.interpolation_window = interpolation_window
+        self.interpolation_align = interpolation_align
+
+        self.n_signals = meta["n_signals"]
+        data_files = [
+            f
+            for f in (self.root_folder / "data").iterdir()
+            if f.is_file() and is_numbered_file(f.name, ext='.npy')
+        ]
+        data_files.sort(key=lambda f: int(os.path.splitext(f.name)[0]))
+
+        self._data = []
+        for i, f in enumerate(data_files):
+            self._data.append(np.load(f))
+
+    def interpolate(self, times: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        valid = self.valid_times(times)
+        valid_times = times[valid]
+        valid_times += 1e-4  # add small offset to avoid numerical issues
+
+        spike_counts = np.zeros((len(valid_times), self.n_signals), dtype=int)
+
+        for neuron_idx, spike_times in enumerate(self._data):
+            spike_times = np.sort(spike_times)  # ensure sorted
+
+            for i, t in enumerate(valid_times):
+                if self.interpolation_align == "center":
+                    start = t - self.interpolation_window / 2
+                    end = t + self.interpolation_window / 2
+                elif self.interpolation_align == "left":
+                    start = t
+                    end = t + self.interpolation_window
+                elif self.interpolation_align == "right":
+                    start = t - self.interpolation_window
+                    end = t
+                else:
+                    raise ValueError(f"Unknown alignment mode: {self.interpolation_align}")
+
+                start_idx = np.searchsorted(spike_times, start, side="left")
+                end_idx = np.searchsorted(spike_times, end, side="right")
+
+                spike_counts[i, neuron_idx] = end_idx - start_idx
+
+        return spike_counts, valid
+
+
+class OdorInterpolator(Interpolator):
+    def __init__(self, root_folder: str, cache_data: bool = False, **kwargs) -> None:
+        super().__init__(root_folder)
+        meta = self.load_meta()
+        self.timestamps = np.load(self.root_folder / "timestamps.npy")
+        self.start_time = meta.get("start_time", self.timestamps[0])
+        self.end_time = meta.get("end_time", self.timestamps[-1])
+        self.valid_interval = TimeInterval(self.start_time, self.end_time)
+        self.cache_trials = cache_data
+        self.is_mem_mapped = meta.get("is_mem_mapped", False)
+        
+        self.n_signals = meta["n_signals"]
+        # read .mem (memmap) or .npy file
+        if self.is_mem_mapped:
+            self._data = np.memmap(
+                self.root_folder / "data.mem",
+                dtype=meta["dtype"],
+                mode="r",
+                shape=(meta["n_timestamps"], meta["n_signals"]),
+            )
+
+            if cache_data:
+                self._data = np.array(self._data).astype(
+                    np.float32
+                )  # Convert memmap to ndarray
+        else:
+            self._data = np.load(self.root_folder / "data.npy")
+
+        self._parse_trials()
+
+    def _parse_trials(self) -> None:
+        self._trials = []
+        # Get meta files and sort by number
+        meta_files = [
+            f
+            for f in (self.root_folder / "meta").iterdir()
+            if f.is_file() and is_numbered_file(f.name, ext='.yml')
+        ]
+        meta_files.sort(key=lambda f: int(os.path.splitext(f.name)[0]))
+
+        # Read each YAML file and store under its filename
+        for meta_file in meta_files:
+            with open(meta_file, "r") as file:
+                yaml_content = yaml.safe_load(file)
+                self._trials.append(yaml_content)
+
+    def interpolate(self, times: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        valid = self.valid_times(times)
+        valid_times = times[valid]
+        valid_times += 1e-4  # add small offset to avoid numerical issues
+
+        assert np.all(np.diff(valid_times) > 0), "Times must be sorted"
+        idx = (
+            np.searchsorted(self.timestamps, valid_times) - 1
+        )
+        assert np.all(
+            (idx >= 0) & (idx < len(self.timestamps))
+        ), "All times must be within the valid range"
+
+        return self._data[idx], valid
+
+
 class ScreenInterpolator(Interpolator):
     def __init__(
         self,
@@ -372,10 +492,6 @@ class ScreenInterpolator(Interpolator):
         return (data - self.mean) / self.std
 
     def _combine_metadatas(self) -> None:
-        # Function to check if a file is a numbered yml file
-        def is_numbered_yml(file_name):
-            return re.fullmatch(r"\d{5}\.yml", file_name) is not None
-
         # Initialize an empty dictionary to store all contents
         all_data = {}
 
@@ -383,7 +499,7 @@ class ScreenInterpolator(Interpolator):
         meta_files = [
             f
             for f in (self.root_folder / "meta").iterdir()
-            if f.is_file() and is_numbered_yml(f.name)
+            if f.is_file() and is_numbered_file(f.name, ext='.yml')
         ]
         meta_files.sort(key=lambda f: int(os.path.splitext(f.name)[0]))
 
