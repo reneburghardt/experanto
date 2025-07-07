@@ -45,14 +45,14 @@ class Experiment:
                 log.info(f"Skipping {d.name} data... ")
                 continue
             log.info(f"Parsing {d.name} data... ")
-            dev = create_interpolator(
+            interpolator = create_interpolator(
                 d,
                 cache_data=self.cache_data,
                 **self.modality_config[d.name]["interpolation"],
             )
-            self.devices[d.name] = dev
-            self.start_time = dev.start_time
-            self.end_time = dev.end_time
+            self.devices[d.name] = interpolator
+            self.start_time = interpolator.start_time
+            self.end_time = interpolator.end_time
             log.info("Parsing finished")
 
     @property

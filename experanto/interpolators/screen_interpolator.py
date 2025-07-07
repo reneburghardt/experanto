@@ -21,7 +21,7 @@ class ScreenInterpolator(Interpolator):
         root_folder: str,
         cache_data: bool = False,  # New parameter
         rescale: bool = False,
-        rescale_size: typing.Optional[tuple(int, int)] = None,
+        rescale_size: typing.Optional[tuple[int, int]] = None,
         normalize: bool = False,
         **kwargs,
     ) -> None:

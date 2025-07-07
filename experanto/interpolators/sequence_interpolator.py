@@ -148,7 +148,7 @@ class SequenceInterpolator(Interpolator):
 
         else:
             raise NotImplementedError(
-                "interpolation_mode should be linear or nearest_neighbor"
+                f"Unsupported interpolation_mode '{self.interpolation_mode}', expected 'linear' or 'nearest_neighbor'"
             )
 
     def close(self) -> None:
@@ -256,5 +256,5 @@ class PhaseShiftedSequenceInterpolator(SequenceInterpolator):
 
         else:
             raise NotImplementedError(
-                "interpolation_mode should be linear or nearest_neighbor"
+                f"Unsupported interpolation_mode '{self.interpolation_mode}', expected 'linear' or 'nearest_neighbor'"
             )
