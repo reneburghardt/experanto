@@ -402,21 +402,23 @@ class OdorInterpolator(Interpolator):
 
         self._parse_trials()
 
+
     def _parse_trials(self) -> None:
         self._trials = []
-        # Get meta files and sort by number
-        meta_files = [
-            f
-            for f in (self.root_folder / "meta").iterdir()
-            if f.is_file() and is_numbered_file(f.name, ext='.yml')
-        ]
-        meta_files.sort(key=lambda f: int(os.path.splitext(f.name)[0]))
 
-        # Read each YAML file and store under its filename
-        for meta_file in meta_files:
-            with open(meta_file, "r") as file:
-                yaml_content = yaml.safe_load(file)
-                self._trials.append(yaml_content)
+        meta_path = self.root_folder / "meta" / "all_trials.yml"
+
+        if not meta_path.exists():
+            raise FileNotFoundError(f"Trial metadata file not found: {meta_path}")
+
+        with open(meta_path, "r") as file:
+            yaml_content = yaml.safe_load(file)
+
+        if not isinstance(yaml_content, list):
+            raise ValueError(f"Expected a list of trials in YAML, got {type(yaml_content)}")
+
+        self._trials = yaml_content
+
 
     def interpolate(self, times: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         valid = self.valid_times(times)
