@@ -85,7 +85,7 @@ class Experiment:
         interval: TimeInterval,
         target_sampling_rates: Optional[Union[float, dict[str, float]]] = None,
         devices: Optional[Union[str, List[str]]] = None,
-    ) -> tuple[np.ndarray, np.ndarray]:
+    ) -> dict[str, np.ndarray]:
         """
         Retrieve interpolated data for a given time interval across specified devices.
 
@@ -148,7 +148,7 @@ class Experiment:
         chunk_sizes: Optional[Union[int, dict[str, int]]] = None,
         target_sampling_rates: Optional[Union[float, dict[str, float]]] = None,
         devices: Optional[Union[str, List[str]]] = None,
-    ) -> tuple[np.ndarray, np.ndarray]:
+    ) -> dict[str, np.ndarray]:
         """
         Retrieve interpolated data for a fixed number of timesteps (chunk size) per device.
 
