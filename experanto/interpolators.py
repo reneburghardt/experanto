@@ -398,7 +398,7 @@ class OdorInterpolator(Interpolator):
                     np.float32
                 )  # Convert memmap to ndarray
         else:
-            self._data = np.load(self.root_folder / "data.npy")
+            self._data = np.load(self.root_folder / "data.npy", allow_pickle=True)
 
         self._parse_trials()
 
