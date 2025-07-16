@@ -341,12 +341,19 @@ class SpikesInterpolator(Interpolator):
         for i, f in enumerate(data_files):
             self._data.append(np.load(f))
 
+        self.neuron_properties = {}
+        if "neuron_properties" in meta:
+            for key, value in meta["neuron_properties"].items():
+                self.neuron_properties[key] = np.load(
+                    self.root_folder / value, allow_pickle=True
+                )
+
     def interpolate(self, times: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         valid = self.valid_times(times)
         valid_times = times[valid]
         valid_times += 1e-4  # add small offset to avoid numerical issues
 
-        spike_counts = np.zeros((len(valid_times), self.n_signals), dtype=int)
+        spike_counts = np.zeros((len(valid_times), self.n_signals))
 
         for neuron_idx, spike_times in enumerate(self._data):
             spike_times = np.sort(spike_times)  # ensure sorted
@@ -367,7 +374,7 @@ class SpikesInterpolator(Interpolator):
                 start_idx = np.searchsorted(spike_times, start, side="left")
                 end_idx = np.searchsorted(spike_times, end, side="right")
 
-                spike_counts[i, neuron_idx] = end_idx - start_idx
+                spike_counts[i, neuron_idx] = (end_idx - start_idx)/self.interpolation_window
 
         return spike_counts, valid
 
