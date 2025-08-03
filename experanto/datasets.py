@@ -317,6 +317,9 @@ class ChunkDataset(Dataset):
 
             else:
                 transform_list = [lambda x: torch.from_numpy(x).float()]
+                transform_list = [
+                    lambda x: torch.from_numpy(x).float().unsqueeze(0)  # Add C dim to use torchvision transform
+                ]
 
             if self.modality_config[device_name].transforms.get("normalization", False):
                 transform_list.append(
