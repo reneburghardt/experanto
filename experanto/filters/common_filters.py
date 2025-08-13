@@ -10,6 +10,8 @@ from experanto.intervals import (
 
 def nan_filter(vicinity=0.05):
     def implementation(device_: SequenceInterpolator):
+        # requests SequenceInterpolator as uses time_delta internally
+        # and other interpolators don't have it
         time_delta = device_.time_delta
         start_time = device_.start_time
         end_time = device_.end_time

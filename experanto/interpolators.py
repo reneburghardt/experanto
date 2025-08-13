@@ -62,7 +62,7 @@ class Interpolator:
             return TimeIntervalInterpolator(root_folder, cache_data, **kwargs)
         else:
             raise ValueError(
-                f"There is no interpolator for {modality}. Please use 'sequence' or 'screen' as modality."
+                f"There is no interpolator for {modality}. Please use 'sequence', 'screen' or 'time_interval' as modality."
             )
 
     def valid_times(self, times: np.ndarray) -> np.ndarray:
@@ -492,21 +492,31 @@ class TimeIntervalInterpolator(Interpolator):
 
         if self.cache_data:
             self.labeled_intervals = {
-                label: np.load(filename, allow_pickle=True)
+                label: np.load(self.root_folder / filename)
                 for label, filename in self.meta_labels.items()
             }
 
     def interpolate(self, times: np.ndarray) -> np.ndarray:
-        """Interpolates over TimeInterval modality.
+        """
+        Interpolate time intervals for labeled events.
 
-        The key idea is the following: we have a `meta.yml` file whose "main" key is called `labels`. The keys of `meta["labels"]` are strings containing the labels of the time intervals we are interested.
+        Given a set of time points and a set of labeled intervals (defined in the `meta.yml` file), this method returns a boolean array indicating, for each time point, whether it falls within any interval for each label.
 
-        Examples of labels for tiers are: `train`, `validation` and `test`.
-        Other examples of labels: `saccade`, `gaze`, `target`.
+        Parameters
+        ----------
+        times : np.ndarray
+            Array of time points to be checked against the labeled intervals.
 
-        The values of `meta["labels"]` are filenames to `.npy` files and the `.npy` files contain `np.array`'s of shape `(n, 2)`, where `n` is the number of keys we have, say, for training, and `2` is the starting and the end time of the respective key.
+        Returns
+        -------
+        out : np.ndarray of bool, shape (len(valid_times), n_labels)
+            Boolean array where each row corresponds to a valid time point and each column to a label. `out[i, j]` is True if the i-th valid time falls within any interval for the j-th label, and False otherwise.
 
-        The interpolation works as follows: the output signal array, `out`, is a `np.array` of shape `(len(valid_times), number of labels)`. The values are boolean and we compute them as follows: `out[valid_time, label] = 1` if `start <= valid_times[i] <= end` for one of the `(start, end)` pairs in the respective `label.npy` file, and `0` otherwise.
+        Notes
+        -----
+        - The labels and their corresponding intervals are defined in the `meta.yml` file under the `labels` key. Each label points to a `.npy` file containing an array of shape (n, 2), where each row is a (start, end) time interval.
+        - Typical labels might include 'train', 'validation', 'test', 'saccade', 'gaze', or 'target'.
+        - Only time points within the valid interval are considered; others are ignored.
         """
         valid = self.valid_times(times)
         valid_times = times[valid]
@@ -522,15 +532,26 @@ class TimeIntervalInterpolator(Interpolator):
 
         out = np.zeros((n_times, n_labels), dtype=bool)
 
-        for l, (label, filename) in enumerate(self.meta_labels.items()):
+        for i, (label, filename) in enumerate(self.meta_labels.items()):
             if self.cache_data:
                 intervals = self.labeled_intervals[label]
             else:
                 intervals = np.load(self.root_folder / filename, allow_pickle=True)
+                if len(intervals) == 0:
+                    warnings.warn(
+                        f"TimeIntervalInterpolator found no intervals for label: {label}"
+                    )
+                continue
 
             for start, end in intervals:
+                if start >= end:
+                    warnings.warn(
+                        f"Invalid interval found for label: {label}, interval: ({start}, {end})"
+                    )
+                    continue
+
                 mask = (valid_times >= start) & (valid_times < end)
-                out[mask, l] = True
+                out[mask, i] = True
 
         return out
 

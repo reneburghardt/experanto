@@ -38,6 +38,16 @@ def create_time_intervals_data(type="simple", t_end=1000.0):
                 TIME_INTERVAL_ROOT / "validation.npy",
                 np.array([[400, 600], [800, t_end]]),
             )
+        elif type == "zero_length":
+            np.save(TIME_INTERVAL_ROOT / "test.npy", np.array([[100, 100]]))
+            np.save(
+                TIME_INTERVAL_ROOT / "train.npy",
+                np.array([[200, 400], [600, 800]]),
+            )
+            np.save(
+                TIME_INTERVAL_ROOT / "validation.npy",
+                np.array([[400, 600], [800, t_end]]),
+            )
         elif type == "overlap2":
             np.save(TIME_INTERVAL_ROOT / "test.npy", np.array([[0, 250]]))
             np.save(
@@ -89,6 +99,29 @@ def create_time_intervals_data(type="simple", t_end=1000.0):
                 np.array([[400, 600], [800, t_end]]),
             )
             timestamps[100:250] = np.nan
+        elif type == "multi_zero_length":
+            np.save(
+                TIME_INTERVAL_ROOT / "test.npy",
+                np.array([[100, 100], [500, 600]]),
+            )
+            np.save(
+                TIME_INTERVAL_ROOT / "train.npy",
+                np.array([[400, 400], [600, 600]]),
+            )
+            np.save(
+                TIME_INTERVAL_ROOT / "validation.npy",
+                np.array([[200, 200], [800, t_end]]),
+            )
+        elif type == "full_range":
+            np.save(TIME_INTERVAL_ROOT / "test.npy", np.array([[0, t_end]]))
+            np.save(
+                TIME_INTERVAL_ROOT / "train.npy",
+                np.array([[200, 400], [600, 800]]),
+            )
+            np.save(
+                TIME_INTERVAL_ROOT / "validation.npy",
+                np.array([[400, 600], [800, t_end]]),
+            )
 
         yield timestamps
 
