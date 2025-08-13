@@ -531,7 +531,6 @@ class TimeIntervalInterpolator(Interpolator):
             return np.empty((0, n_labels), dtype=bool)
 
         out = np.zeros((n_times, n_labels), dtype=bool)
-
         for i, (label, filename) in enumerate(self.meta_labels.items()):
             if self.cache_data:
                 intervals = self.labeled_intervals[label]
@@ -541,7 +540,7 @@ class TimeIntervalInterpolator(Interpolator):
                     warnings.warn(
                         f"TimeIntervalInterpolator found no intervals for label: {label}"
                     )
-                continue
+                    continue
 
             for start, end in intervals:
                 if start >= end:
@@ -549,7 +548,6 @@ class TimeIntervalInterpolator(Interpolator):
                         f"Invalid interval found for label: {label}, interval: ({start}, {end})"
                     )
                     continue
-
                 mask = (valid_times >= start) & (valid_times < end)
                 out[mask, i] = True
 
