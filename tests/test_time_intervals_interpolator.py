@@ -11,13 +11,13 @@ def assert_true_and_false(signal, true_indices, label_idx):
     for start, end in true_indices:
         mask[start:end] = True
         # Check that all values in true_indices are True for label_idx
-        assert signal[start:end, label_idx].all(), (
-            f"Expected True in {start}:{end} for label {label_idx}"
-        )
+        assert signal[
+            start:end, label_idx
+        ].all(), f"Expected True in {start}:{end} for label {label_idx}"
     # Check that all other values are False for label_idx
-    assert (~signal[~mask, label_idx]).all(), (
-        f"Expected False outside {true_indices} for label {label_idx}"
-    )
+    assert (
+        ~signal[~mask, label_idx]
+    ).all(), f"Expected False outside {true_indices} for label {label_idx}"
 
 
 def test_time_interval_interpolation():
