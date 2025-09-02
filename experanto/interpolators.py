@@ -60,7 +60,7 @@ class Interpolator:
             return ScreenInterpolator(root_folder, cache_data, **kwargs)
         else:
             raise ValueError(
-                f"There is no interpolator for {modality}. Please use 'sequence' or 'screen' as modality."
+                f"There is no interpolator for {modality}. Please use 'sequence' or 'screen' as modality or provide a custom interpolator."
             )
 
     def valid_times(self, times: np.ndarray) -> np.ndarray:

@@ -20,6 +20,7 @@ class Experiment:
         root_folder: str,
         modality_config: dict = DEFAULT_MODALITY_CONFIG,
         cache_data: bool = False,
+        custom_interp: dict = None,
     ) -> None:
         """
         root_folder: path to the data folder
@@ -33,6 +34,7 @@ class Experiment:
         self.end_time = -np.inf
         self.modality_config = modality_config
         self.cache_data = cache_data
+        self.custom_interp = custom_interp
         self._load_devices()
 
     def _load_devices(self) -> None:
@@ -45,11 +47,24 @@ class Experiment:
                 log.info(f"Skipping {d.name} data... ")
                 continue
             log.info(f"Parsing {d.name} data... ")
-            dev = Interpolator.create(
-                d,
-                cache_data=self.cache_data,
-                **self.modality_config[d.name]["interpolation"],
-            )
+
+            # check modality config for custom interpolater
+            interp_conf = self.modality_config[d.name]["interpolation"].copy()
+            custom_cls = interp_conf.pop("custom_class", None)
+
+            # if custom_cls exists create object from the provided dict
+            if custom_cls:
+                dev = self.custom_interp[custom_cls](
+                    d,
+                    cache_data=self.cache_data,
+                    **interp_conf,
+                )
+            else:
+                dev = Interpolator.create(
+                    d,
+                    cache_data=self.cache_data,
+                    **interp_conf,
+                )
             self.devices[d.name] = dev
             self.start_time = dev.start_time
             self.end_time = dev.end_time
