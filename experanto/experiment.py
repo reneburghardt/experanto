@@ -5,10 +5,10 @@ import re
 from collections import namedtuple
 from collections.abc import Sequence
 from pathlib import Path
-from hydra.utils import instantiate
-from omegaconf import DictConfig
 
 import numpy as np
+from hydra.utils import instantiate
+from omegaconf import DictConfig
 
 from .configs import DEFAULT_MODALITY_CONFIG
 from .interpolators import Interpolator
@@ -50,7 +50,10 @@ class Experiment:
             # Get interpolation config for this device
             interp_conf = self.modality_config[d.name]["interpolation"]
 
-            if isinstance(interp_conf, (dict, DictConfig)) and "_target_" in interp_conf:
+            if (
+                isinstance(interp_conf, (dict, DictConfig))
+                and "_target_" in interp_conf
+            ):
                 # Custom interpolator (Hydra instantiates it)
                 dev = instantiate(interp_conf, d, cache_data=self.cache_data)
 
