@@ -5,6 +5,8 @@ import re
 from collections import namedtuple
 from collections.abc import Sequence
 from pathlib import Path
+from hydra.utils import instantiate
+from omegaconf import DictConfig
 
 import numpy as np
 
@@ -20,7 +22,6 @@ class Experiment:
         root_folder: str,
         modality_config: dict = DEFAULT_MODALITY_CONFIG,
         cache_data: bool = False,
-        custom_interp: dict = None,
     ) -> None:
         """
         root_folder: path to the data folder
@@ -34,12 +35,10 @@ class Experiment:
         self.end_time = -np.inf
         self.modality_config = modality_config
         self.cache_data = cache_data
-        self.custom_interp = custom_interp
         self._load_devices()
 
     def _load_devices(self) -> None:
         # Populate devices by going through subfolders
-        # Assumption: blocks are sorted by start time
         device_folders = [d for d in self.root_folder.iterdir() if (d.is_dir())]
 
         for d in device_folders:
@@ -48,23 +47,21 @@ class Experiment:
                 continue
             log.info(f"Parsing {d.name} data... ")
 
-            # check modality config for custom interpolater
-            interp_conf = self.modality_config[d.name]["interpolation"].copy()
-            custom_cls = interp_conf.pop("custom_class", None)
+            # Get interpolation config for this device
+            interp_conf = self.modality_config[d.name]["interpolation"]
 
-            # if custom_cls exists create object from the provided dict
-            if custom_cls:
-                dev = self.custom_interp[custom_cls](
-                    d,
-                    cache_data=self.cache_data,
-                    **interp_conf,
-                )
+            if isinstance(interp_conf, (dict, DictConfig)) and "_target_" in interp_conf:
+                # Custom interpolator (Hydra instantiates it)
+                dev = instantiate(interp_conf, d, cache_data=self.cache_data)
+
+            elif isinstance(interp_conf, (dict, DictConfig)):
+                # Default interpolator config → use factory
+                dev = Interpolator.create(d, cache_data=self.cache_data, **interp_conf)
+
             else:
-                dev = Interpolator.create(
-                    d,
-                    cache_data=self.cache_data,
-                    **interp_conf,
-                )
+                # Already instantiated object (regardless of class)
+                dev = interp_conf
+
             self.devices[d.name] = dev
             self.start_time = dev.start_time
             self.end_time = dev.end_time
