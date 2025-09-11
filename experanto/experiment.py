@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import List, Optional, Union
 
 import numpy as np
+from hydra.utils import instantiate
+from omegaconf import DictConfig
 
 from .configs import DEFAULT_MODALITY_CONFIG
 from .interpolators import Interpolator
@@ -42,7 +44,6 @@ class Experiment:
 
     def _load_devices(self) -> None:
         # Populate devices by going through subfolders
-        # Assumption: blocks are sorted by start time
         device_folders = [d for d in self.root_folder.iterdir() if (d.is_dir())]
 
         for d in device_folders:
@@ -50,11 +51,25 @@ class Experiment:
                 log.info(f"Skipping {d.name} data... ")
                 continue
             log.info(f"Parsing {d.name} data... ")
-            dev = Interpolator.create(
-                d,
-                cache_data=self.cache_data,
-                **self.modality_config[d.name]["interpolation"],
-            )
+
+            # Get interpolation config for this device
+            interp_conf = self.modality_config[d.name]["interpolation"]
+
+            if (
+                isinstance(interp_conf, (dict, DictConfig))
+                and "_target_" in interp_conf
+            ):
+                # Custom interpolator (Hydra instantiates it)
+                dev = instantiate(interp_conf, d, cache_data=self.cache_data)
+
+            elif isinstance(interp_conf, (dict, DictConfig)):
+                # Default interpolator config → use factory
+                dev = Interpolator.create(d, cache_data=self.cache_data, **interp_conf)
+
+            else:
+                # Already instantiated object (regardless of class)
+                dev = interp_conf
+
             self.devices[d.name] = dev
             self.start_time = dev.start_time
             self.end_time = dev.end_time
