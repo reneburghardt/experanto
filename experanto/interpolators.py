@@ -407,6 +407,10 @@ class OdorInterpolator(Interpolator):
         else:
             self._data = np.load(self.root_folder / "data.npy", allow_pickle=True)
 
+        self._data = [
+            {key: data[int(dim)] for dim, key in meta.get('channels_meaning', {}).items()} for data in self._data
+        ]
+
         self._parse_trials()
 
 
@@ -440,7 +444,7 @@ class OdorInterpolator(Interpolator):
             (idx >= 0) & (idx < len(self.timestamps))
         ), "All times must be within the valid range"
 
-        return self._data[idx], valid
+        return [self._data[_id] for _id in idx], valid
 
 
 class ScreenInterpolator(Interpolator):
