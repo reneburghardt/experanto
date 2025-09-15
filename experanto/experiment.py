@@ -55,7 +55,9 @@ class Experiment:
                 and "_target_" in interp_conf
             ):
                 # Custom interpolator (Hydra instantiates it)
-                dev = instantiate(interp_conf, root_folder=d, cache_data=self.cache_data)
+                dev = instantiate(
+                    interp_conf, root_folder=d, cache_data=self.cache_data
+                )
 
             elif isinstance(interp_conf, (dict, DictConfig)):
                 # Default interpolator config → use factory
