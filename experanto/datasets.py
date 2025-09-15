@@ -308,7 +308,7 @@ class ChunkDataset(Dataset):
             if device_name == "screen":
                 add_channel = Lambda(self.add_channel_function)
                 transform_list = []
-                
+
                 for v in self.modality_config.screen.transforms.values():
                     if isinstance(v, dict):  # config dict
                         module = instantiate(v)
