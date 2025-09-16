@@ -143,8 +143,8 @@ class ChunkDataset(Dataset):
         self.root_folder = Path(root_folder)
         self.data_key = self.get_data_key_from_root_folder(root_folder)
 
-        self.modality_config = instantiate(modality_config)
-        self.chunk_sizes, self.sampling_rates = {}, {}
+        self.modality_config = modality_config
+        self.chunk_sizes, self.sampling_rates, self.chunk_s = {}, {}, {}
         for device_name in self.modality_config.keys():
             cfg = self.modality_config[device_name]
             self.chunk_sizes[device_name] = global_chunk_size or cfg.chunk_size
@@ -302,11 +302,14 @@ class ChunkDataset(Dataset):
         for device_name in self.device_names:
             if device_name == "screen":
                 add_channel = Lambda(self.add_channel_function)
-                transform_list = [
-                    v
-                    for v in self.modality_config.screen.transforms.values()
-                    if isinstance(v, torch.nn.Module)
-                ]
+                transform_list = []
+
+                for v in self.modality_config.screen.transforms.values():
+                    if isinstance(v, dict):  # config dict
+                        module = instantiate(v)
+                        if isinstance(module, torch.nn.Module):
+                            transform_list.append(module)
+
                 transform_list.insert(0, add_channel)
             else:
 
