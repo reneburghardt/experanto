@@ -311,11 +311,15 @@ class ChunkDataset(Dataset):
                             transform_list.append(module)
 
                 transform_list.insert(0, add_channel)
+
             else:
+                transform_list = [lambda x: torch.from_numpy(x).float()]
+                transform_list = [
+                    lambda x: torch.from_numpy(x)
+                    .float()
+                    .unsqueeze(0)  # Add C dim to use torchvision transform
+                ]
 
-                transform_list = [ToTensor()]
-
-            # Normalization.
             if self.modality_config[device_name].transforms.get("normalization", False):
                 transform_list.append(
                     torchvision.transforms.Normalize(
@@ -325,6 +329,7 @@ class ChunkDataset(Dataset):
                 )
 
             transforms[device_name] = Compose(transform_list)
+
         return transforms
 
     def _get_callable_filter(self, filter_config):
