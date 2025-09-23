@@ -154,7 +154,7 @@ class Experiment:
             # Scale everything back to truncated values
             times = times.astype(np.float64) / self.scale_precision
 
-            data, _ = self.interpolate(times, device=device)
+            data = self.interpolate(times, device=device)
             out[device] = data
         return out
 
@@ -222,7 +222,7 @@ class Experiment:
             # Scale everything back to truncated values
             times = times.astype(np.float64) / self.scale_precision
 
-            data, _ = self.interpolate(times, device=device)
+            data = self.interpolate(times, device=device)
             out[device] = data
             timestamps[device] = times
         return out, timestamps
