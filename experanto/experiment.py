@@ -127,11 +127,7 @@ class Experiment:
 
             start_time = int(round(interval.start * self.scale_precision))
             end_time = int(round(interval.end * self.scale_precision))
-            offset = int(
-                round(
-                    self.modality_config[device].get("offset", 0) * self.scale_precision
-                )
-            )
+            offset = self._get_device_offset(device)
             time_delta = int(round((1.0 / target_sampling_rate) * self.scale_precision))
             # Generate times as ints - important as for np.floats the summation is not associative
             times = np.arange(start_time + offset, end_time + offset, time_delta)
@@ -195,11 +191,7 @@ class Experiment:
                     f"Target sampling rate for device '{device}' is not specified."
                 )
 
-            offset = int(
-                round(
-                    self.modality_config[device].get("offset", 0) * self.scale_precision
-                )
-            )
+            offset = self._get_device_offset(device)
             time_delta = int(round((1.0 / target_sampling_rate) * self.scale_precision))
             # Generate times as ints - important as for np.floats the summation is not associative
             times = start_time + offset + np.arange(chunk_size) * time_delta
