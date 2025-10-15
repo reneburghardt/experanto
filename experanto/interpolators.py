@@ -530,7 +530,7 @@ class TimeIntervalInterpolator(Interpolator):
         - Only time points within the valid interval (as defined by start_time and
           end_time in meta.yml) are considered; others are filtered out.
         - Intervals where start > end are considered invalid and will trigger a
-          warning. Zero-length intervals (start == end) are skipped.
+          warning.
         """
         valid = self.valid_times(times)
         valid_times = times[valid]
