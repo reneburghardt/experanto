@@ -500,7 +500,13 @@ class TimeIntervalInterpolator(Interpolator):
         """
         Interpolate time intervals for labeled events.
 
-        Given a set of time points and a set of labeled intervals (defined in the `meta.yml` file), this method returns a boolean array indicating, for each time point, whether it falls within any interval for each label.
+        Given a set of time points and a set of labeled intervals (defined in the
+        `meta.yml` file), this method returns a boolean array indicating, for each
+        time point, whether it falls within any interval for each label.
+
+        The method uses half-open intervals [start, end), where a timestamp t is
+        considered to fall within an interval if start <= t < end. This means the
+        start time is inclusive and the end time is exclusive.
 
         Parameters
         ----------
@@ -510,13 +516,21 @@ class TimeIntervalInterpolator(Interpolator):
         Returns
         -------
         out : np.ndarray of bool, shape (len(valid_times), n_labels)
-            Boolean array where each row corresponds to a valid time point and each column to a label. `out[i, j]` is True if the i-th valid time falls within any interval for the j-th label, and False otherwise.
+            Boolean array where each row corresponds to a valid time point and each
+            column corresponds to a label. `out[i, j]` is True if the i-th valid
+            time falls within any interval for the j-th label, and False otherwise.
 
         Notes
         -----
-        - The labels and their corresponding intervals are defined in the `meta.yml` file under the `labels` key. Each label points to a `.npy` file containing an array of shape (n, 2), where each row is a (start, end) time interval.
-        - Typical labels might include 'train', 'validation', 'test', 'saccade', 'gaze', or 'target'.
-        - Only time points within the valid interval are considered; others are ignored.
+        - The labels and their corresponding intervals are defined in the `meta.yml`
+          file under the `labels` key. Each label points to a `.npy` file containing
+          an array of shape (n, 2), where each row is a [start, end) time interval.
+        - Typical labels might include 'train', 'validation', 'test', 'saccade',
+          'gaze', or 'target'.
+        - Only time points within the valid interval (as defined by start_time and
+          end_time in meta.yml) are considered; others are filtered out.
+        - Intervals where start > end are considered invalid and will trigger a
+          warning. Zero-length intervals (start == end) are skipped.
         """
         valid = self.valid_times(times)
         valid_times = times[valid]
@@ -536,18 +550,20 @@ class TimeIntervalInterpolator(Interpolator):
                 intervals = self.labeled_intervals[label]
             else:
                 intervals = np.load(self.root_folder / filename, allow_pickle=True)
-                if len(intervals) == 0:
-                    warnings.warn(
-                        f"TimeIntervalInterpolator found no intervals for label: {label}"
-                    )
-                    continue
+
+            if len(intervals) == 0:
+                warnings.warn(
+                    f"TimeIntervalInterpolator found no intervals for label: {label}"
+                )
+                continue
 
             for start, end in intervals:
-                if start >= end:
+                if start > end:
                     warnings.warn(
                         f"Invalid interval found for label: {label}, interval: ({start}, {end})"
                     )
                     continue
+                # Half-open interval [start, end): inclusive start, exclusive end
                 mask = (valid_times >= start) & (valid_times < end)
                 out[mask, i] = True
 
