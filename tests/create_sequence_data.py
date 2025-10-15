@@ -14,7 +14,7 @@ def _generate_sequence_data(
     sequence_root,
     n_signals=10,
     shifts_per_signal=False,
-    use_mem_mapped=False,   
+    use_mem_mapped=False,
     t_end=10.0,
     sampling_rate=10.0,
     contain_nans=False,
@@ -73,25 +73,23 @@ def _generate_sequence_data(
 def create_sequence_data(
     n_signals=10,
     shifts_per_signal=False,
-    use_mem_mapped=False,   
+    use_mem_mapped=False,
     t_end=10.0,
     sampling_rate=10.0,
     contain_nans=False,
-    sequence_root=None,
 ):
-    sequence_root = Path(sequence_root) or SEQUENCE_ROOT
     try:
         yield _generate_sequence_data(
-            sequence_root=sequence_root,
+            sequence_root=SEQUENCE_ROOT,
             n_signals=n_signals,
             shifts_per_signal=shifts_per_signal,
-            use_mem_mapped=use_mem_mapped,   
+            use_mem_mapped=use_mem_mapped,
             t_end=t_end,
             sampling_rate=sampling_rate,
             contain_nans=contain_nans,
         )
     finally:
-        shutil.rmtree(sequence_root)
+        shutil.rmtree(SEQUENCE_ROOT)
 
 
 @contextmanager
