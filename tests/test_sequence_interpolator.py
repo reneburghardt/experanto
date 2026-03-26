@@ -1,12 +1,14 @@
 import numpy as np
 import pytest
+from contextlib import closing
 
 from experanto.interpolators import (
+    Interpolator,
     PhaseShiftedSequenceInterpolator,
     SequenceInterpolator,
 )
 
-from .create_sequence_data import sequence_data_and_interpolator
+from .create_sequence_data import create_sequence_data, sequence_data_and_interpolator
 
 DEFAULT_SEQUENCE_LENGTH = 10
 
@@ -545,6 +547,156 @@ def test_interpolation_mode_not_implemented():
         seq_interp.interpolation_mode = "unsupported_mode"
         with pytest.raises(NotImplementedError):
             seq_interp.interpolate(np.array([0.0, 1.0, 2.0]), return_valid=True)
+
+
+# ---------------------------------------------------------------------------
+# Tests for signal_ids filtering
+# ---------------------------------------------------------------------------
+
+# Non-contiguous ids exercise the lazy-filter path on memmaps and the
+# direct-subset path on npy/cached data.
+NON_CONTIGUOUS_IDS = np.array([0, 2, 7, 9])  # 4 out of 10 signals
+CONTIGUOUS_IDS = np.array([3, 4, 5, 6])       # 4 contiguous signals
+
+
+@pytest.mark.parametrize("interpolation_mode", ["nearest_neighbor", "linear"])
+@pytest.mark.parametrize(
+    "signal_ids", [NON_CONTIGUOUS_IDS, CONTIGUOUS_IDS, np.array([5])]
+)
+@pytest.mark.parametrize(
+    "use_mem_mapped,cache_data",
+    [(False, False), (True, False), (True, True)],
+)
+def test_signal_ids_output_matches_full_interpolation(
+    interpolation_mode, signal_ids, use_mem_mapped, cache_data
+):
+    """Filtered output must equal the corresponding columns of the full output."""
+    n_signals = 10
+    data_kwargs = {
+        "n_signals": n_signals,
+        "use_mem_mapped": use_mem_mapped,
+        "t_end": 5.0,
+        "sampling_rate": 10.0,
+    }
+    with create_sequence_data(**data_kwargs) as (timestamps, _, _):
+        times = timestamps[1 : DEFAULT_SEQUENCE_LENGTH + 1] + 1e-9
+
+        with closing(
+            Interpolator.create("tests/sequence_data", cache_data=cache_data)
+        ) as full_interp:
+            full_interp.interpolation_mode = interpolation_mode
+            full_out, valid_full = full_interp.interpolate(
+                times=times, return_valid=True
+            )
+
+        with closing(
+            Interpolator.create(
+                "tests/sequence_data",
+                cache_data=cache_data,
+                signal_ids=signal_ids,
+            )
+        ) as sub_interp:
+            sub_interp.interpolation_mode = interpolation_mode
+
+            assert sub_interp.n_signals == len(
+                signal_ids
+            ), "n_signals should reflect the number of selected signals"
+
+            sub_out, valid_sub = sub_interp.interpolate(
+                times=times, return_valid=True
+            )
+
+    sorted_ids = np.sort(signal_ids)
+    assert sub_out.shape == (len(valid_sub), len(sorted_ids))
+    np.testing.assert_array_equal(valid_full, valid_sub)
+    np.testing.assert_allclose(
+        sub_out,
+        full_out[:, sorted_ids],
+        rtol=1e-5,
+        err_msg="Filtered output does not match the corresponding columns of full output",
+    )
+
+
+@pytest.mark.parametrize("interpolation_mode", ["nearest_neighbor", "linear"])
+@pytest.mark.parametrize(
+    "signal_ids", [NON_CONTIGUOUS_IDS, CONTIGUOUS_IDS]
+)
+def test_signal_ids_memmap_not_materialised_when_lazy(interpolation_mode, signal_ids):
+    """For a non-contiguous selection on an uncached memmap the underlying
+    ``_data`` must remain a ``np.memmap`` (lazy access, no full copy)."""
+    n_signals = 10
+    with sequence_data_and_interpolator(
+        data_kwargs={
+            "n_signals": n_signals,
+            "use_mem_mapped": True,
+            "t_end": 5.0,
+            "sampling_rate": 10.0,
+        },
+        interp_kwargs={"cache_data": False, "signal_ids": signal_ids},
+    ) as (timestamps, _, _, sub_interp):
+        assert isinstance(
+            sub_interp._data, np.memmap
+        ), "_data should remain a memmap when cache_data=False"
+
+        sub_interp.interpolation_mode = interpolation_mode
+        times = timestamps[1 : DEFAULT_SEQUENCE_LENGTH + 1] + 1e-9
+        out, _ = sub_interp.interpolate(times=times, return_valid=True)
+        assert out.shape[1] == len(signal_ids)
+
+
+@pytest.mark.parametrize("interpolation_mode", ["nearest_neighbor", "linear"])
+@pytest.mark.parametrize(
+    "signal_ids", [NON_CONTIGUOUS_IDS, CONTIGUOUS_IDS]
+)
+def test_phase_shifted_signal_ids_output_matches_full_interpolation(
+    interpolation_mode, signal_ids
+):
+    """PhaseShiftedSequenceInterpolator with signal_ids must return the same
+    columns as the unfiltered interpolator for those signals."""
+    n_signals = 10
+    with create_sequence_data(
+        n_signals=n_signals,
+        use_mem_mapped=True,
+        t_end=5.0,
+        sampling_rate=10.0,
+        shifts_per_signal=True,
+    ) as (timestamps, _, _):
+        times = timestamps[2 : DEFAULT_SEQUENCE_LENGTH + 2] + 1e-9
+
+        with closing(
+            Interpolator.create("tests/sequence_data")
+        ) as full_interp:
+            full_interp.interpolation_mode = interpolation_mode
+            full_out, valid_full = full_interp.interpolate(
+                times=times, return_valid=True
+            )
+
+        with closing(
+            Interpolator.create("tests/sequence_data", signal_ids=signal_ids)
+        ) as sub_interp:
+            assert isinstance(
+                sub_interp, PhaseShiftedSequenceInterpolator
+            ), "Expected PhaseShiftedSequenceInterpolator"
+            sub_interp.interpolation_mode = interpolation_mode
+
+            assert sub_interp.n_signals == len(signal_ids)
+            assert len(sub_interp._phase_shifts) == len(signal_ids), (
+                "_phase_shifts should be subsetted to the selected signals"
+            )
+
+            sub_out, valid_sub = sub_interp.interpolate(
+                times=times, return_valid=True
+            )
+
+    sorted_ids = np.sort(signal_ids)
+    assert sub_out.shape == (len(valid_sub), len(sorted_ids))
+    np.testing.assert_array_equal(valid_full, valid_sub)
+    np.testing.assert_allclose(
+        sub_out,
+        full_out[:, sorted_ids],
+        rtol=1e-5,
+        err_msg="Filtered PhaseShifted output does not match corresponding columns",
+    )
 
 
 if __name__ == "__main__":
