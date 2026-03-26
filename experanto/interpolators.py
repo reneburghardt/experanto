@@ -20,6 +20,13 @@ from .intervals import TimeInterval
 logger = logging.getLogger(__name__)
 
 
+def _is_contiguous_range(ids: np.ndarray) -> bool:
+    """Return True if *ids* (sorted 1-D integer array) form a contiguous range."""
+    if len(ids) == 0:
+        return True
+    return bool(ids[-1] - ids[0] == len(ids) - 1)
+
+
 class Interpolator:
     """Abstract base class for time series interpolation.
 
@@ -177,6 +184,20 @@ class SequenceInterpolator(Interpolator):
         If True, subtracts mean during normalization.
     normalize_std_threshold : float, optional
         Minimum std threshold to prevent division by near-zero values.
+    signal_ids : array-like of int, optional
+        Indices of the signals to select.  When omitted all signals are used.
+
+        For memory-mapped data (``cache_data=False``) the selection is applied
+        lazily inside :meth:`interpolate` to avoid materialising the full array:
+
+        * **Contiguous** indices (e.g. ``[3, 4, 5, 6]``) → a strided *view*
+          of the underlying file is used, so no data is copied.
+        * **Non-contiguous** indices → the full memmap is kept on disk; only
+          the rows required by each query are read and then the column subset
+          is taken in RAM.
+
+        For already-in-memory data (``cache_data=True`` or ``.npy`` files) the
+        subset is applied once during initialisation.
     **kwargs
         Additional keyword arguments (ignored).
 
@@ -187,7 +208,8 @@ class SequenceInterpolator(Interpolator):
     time_delta : float
         Time between samples (1 / sampling_rate).
     n_signals : int
-        Number of signals (e.g., neurons, behavior channels).
+        Number of selected signals (equals ``len(signal_ids)`` when provided,
+        otherwise the total number of signals in the file).
 
     Notes
     -----
@@ -209,6 +231,7 @@ class SequenceInterpolator(Interpolator):
         normalize: bool = False,
         normalize_subtract_mean: bool = False,
         normalize_std_threshold: float | None = None,  # or 0.01
+        signal_ids: np.ndarray | None = None,
         **kwargs,
     ) -> None:
         super().__init__(root_folder)
@@ -226,7 +249,22 @@ class SequenceInterpolator(Interpolator):
         # Valid interval can be different to start time and end time.
         self.valid_interval = TimeInterval(self.start_time, self.end_time)
 
-        self.n_signals = meta["n_signals"]
+        # Normalise and sort the requested signal indices (sorted order gives
+        # better sequential disk-access patterns).
+        if signal_ids is not None:
+            signal_ids = np.sort(np.asarray(signal_ids, dtype=np.intp))
+
+        # _signal_ids is non-None only for the lazy-filter path: a memmap that
+        # is not fully cached AND whose signal selection is non-contiguous.
+        # In that case self._data remains the full memmap and the column subset
+        # is applied per-query inside interpolate().
+        self._signal_ids: np.ndarray | None = None
+
+        # Expose the final sorted signal selection so subclasses (e.g.
+        # PhaseShiftedSequenceInterpolator) can subset their own per-signal
+        # arrays without re-sorting the input.
+        self._sorted_signal_ids: np.ndarray | None = signal_ids
+
         # read .mem (memmap) or .npy file
         if self.is_mem_mapped:
             self._data = np.memmap(
@@ -237,18 +275,50 @@ class SequenceInterpolator(Interpolator):
             )
 
             if cache_data:
-                self._data = np.array(self._data).astype(
-                    np.float32
-                )  # Convert memmap to ndarray
+                # Materialise into RAM; subset first to avoid a large
+                # intermediate allocation when signal_ids is given.
+                if signal_ids is not None:
+                    self._data = np.asarray(
+                        self._data[:, signal_ids], dtype=np.float32
+                    )
+                else:
+                    self._data = np.array(self._data).astype(
+                        np.float32
+                    )  # Convert memmap to ndarray
+            elif signal_ids is not None:
+                if _is_contiguous_range(signal_ids):
+                    # Strided view — zero-copy, still lazy.
+                    self._data = self._data[
+                        :, signal_ids[0] : signal_ids[-1] + 1
+                    ]
+                else:
+                    # Keep the full memmap on disk; filter lazily per query.
+                    self._signal_ids = signal_ids
         else:
             self._data = np.load(self.root_folder / "data.npy")
+            if signal_ids is not None:
+                self._data = self._data[:, signal_ids]
+
+        # n_signals reflects the number of signals returned by interpolate().
+        self.n_signals = (
+            len(self._signal_ids)
+            if self._signal_ids is not None
+            else self._data.shape[1]
+        )
 
         if self.normalize:
             self.normalize_init()
 
     def normalize_init(self):
-        self.mean = np.load(self.root_folder / "meta/means.npy")
-        self.std = np.load(self.root_folder / "meta/stds.npy")
+        mean = np.load(self.root_folder / "meta/means.npy")
+        std = np.load(self.root_folder / "meta/stds.npy")
+        # Subset statistics to the selected signals when lazy filtering is
+        # active (self._data still holds the full array in that case).
+        if self._signal_ids is not None:
+            mean = mean[self._signal_ids]
+            std = std[self._signal_ids]
+        self.mean = mean
+        self.std = std
         assert (
             self.mean.shape[0] == self.n_signals
         ), f"mean shape does not match: {self.mean.shape} vs {self._data.shape}"
@@ -284,9 +354,9 @@ class SequenceInterpolator(Interpolator):
                 stacklevel=2,
             )
             return (
-                (np.empty((0, self._data.shape[1])), valid)
+                (np.empty((0, self.n_signals)), valid)
                 if return_valid
-                else np.empty((0, self._data.shape[1]))
+                else np.empty((0, self.n_signals))
             )
 
         idx_lower = np.floor((valid_times - self.start_time) / self.time_delta).astype(
@@ -295,6 +365,8 @@ class SequenceInterpolator(Interpolator):
 
         if self.interpolation_mode == "nearest_neighbor":
             data = self._data[idx_lower]
+            if self._signal_ids is not None:
+                data = data[:, self._signal_ids]
 
             return (data, valid) if return_valid else data
 
@@ -326,6 +398,9 @@ class SequenceInterpolator(Interpolator):
 
             data_lower = self._data[idx_lower]
             data_upper = self._data[idx_upper]
+            if self._signal_ids is not None:
+                data_lower = data_lower[:, self._signal_ids]
+                data_upper = data_upper[:, self._signal_ids]
 
             interpolated = (
                 lower_signal_ratio * data_lower + upper_signal_ratio * data_upper
@@ -359,13 +434,17 @@ class PhaseShiftedSequenceInterpolator(SequenceInterpolator):
     ----------
     root_folder : str
         Path to the modality directory. Must contain ``meta/phase_shifts.npy``.
+    signal_ids : array-like of int, optional
+        See :class:`SequenceInterpolator`.  Phase shifts are subsetted to the
+        same selection.
     **kwargs
         All parameters from :class:`SequenceInterpolator`.
 
     Attributes
     ----------
     _phase_shifts : numpy.ndarray
-        Per-signal phase shift values in seconds.
+        Per-signal phase shift values in seconds (subset when *signal_ids* is
+        given).
     """
 
     def __init__(
@@ -377,6 +456,7 @@ class PhaseShiftedSequenceInterpolator(SequenceInterpolator):
         normalize: bool = False,
         normalize_subtract_mean: bool = False,
         normalize_std_threshold: float | None = None,  # or 0.01
+        signal_ids: np.ndarray | None = None,
         **kwargs,
     ) -> None:
         super().__init__(
@@ -387,10 +467,14 @@ class PhaseShiftedSequenceInterpolator(SequenceInterpolator):
             normalize=normalize,
             normalize_subtract_mean=normalize_subtract_mean,
             normalize_std_threshold=normalize_std_threshold,
+            signal_ids=signal_ids,
             **kwargs,
         )
 
-        self._phase_shifts = np.load(self.root_folder / "meta/phase_shifts.npy")
+        phase_shifts_all = np.load(self.root_folder / "meta/phase_shifts.npy")
+        if self._sorted_signal_ids is not None:
+            phase_shifts_all = phase_shifts_all[self._sorted_signal_ids]
+        self._phase_shifts = phase_shifts_all
         self.valid_interval = TimeInterval(
             self.start_time
             + (np.max(self._phase_shifts) if len(self._phase_shifts) > 0 else 0),
@@ -411,9 +495,9 @@ class PhaseShiftedSequenceInterpolator(SequenceInterpolator):
                 stacklevel=2,
             )
             return (
-                (np.empty((0, self._data.shape[1])), valid)
+                (np.empty((0, self.n_signals)), valid)
                 if return_valid
-                else np.empty((0, self._data.shape[1]))
+                else np.empty((0, self.n_signals))
             )
 
         idx_lower = np.floor(
@@ -426,7 +510,17 @@ class PhaseShiftedSequenceInterpolator(SequenceInterpolator):
         ).astype(int)
 
         if self.interpolation_mode == "nearest_neighbor":
-            data = np.take_along_axis(self._data, idx_lower, axis=0)
+            if self._signal_ids is not None:
+                # self._data is the full memmap with N_all columns, while
+                # idx_lower has only N_subset columns.  np.take_along_axis
+                # requires matching shapes, so we use explicit fancy indexing
+                # to map each subset position to its original column index.
+                cols = np.broadcast_to(
+                    self._signal_ids[np.newaxis, :], idx_lower.shape
+                )
+                data = self._data[idx_lower, np.asarray(cols)]
+            else:
+                data = np.take_along_axis(self._data, idx_lower, axis=0)
             return (data, valid) if return_valid else data
 
         elif self.interpolation_mode == "linear":
@@ -456,6 +550,10 @@ class PhaseShiftedSequenceInterpolator(SequenceInterpolator):
             upper_signal_ratio = upper_numerator / denom
 
             _, cols = np.indices(idx_lower.shape)
+            if self._signal_ids is not None:
+                # Remap 0-based column positions to original signal indices in
+                # the full memmap.
+                cols = self._signal_ids[cols]
             data_lower = self._data[idx_lower, cols]
             data_upper = self._data[idx_upper, cols]
 
